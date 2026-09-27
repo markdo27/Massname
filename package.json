@@ -1,0 +1,18 @@
+{
+  "name": "massname",
+  "version": "1.0.0",
+  "description": "Reel Invitation. Made for BLK.HN",
+  "scripts": {
+    "dev:server": "cd server && node index.js",
+    "dev:client": "cd client && npm run dev",
+    "dev": "concurrently -n \"SERVER,CLIENT\" -c \"cyan,magenta\" \"npm run dev:server\" \"npm run dev:client\"",
+    "build": "cd client && npm run build",
+    "start": "cd server && node index.js"
+  },
+  "keywords": ["video", "invitation", "reel", "9:16", "mass-export", "ffmpeg"],
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "concurrently": "^9.1.2"
+  }
+}
