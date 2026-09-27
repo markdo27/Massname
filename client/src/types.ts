@@ -1,39 +1,26 @@
 export interface VideoData {
-  videoId: string;
-  originalName: string;
-  filename: string;
-  url: string;
+  name: string; // original file name
+  url: string; // URL used by the preview player
   width: number;
   height: number;
   duration: number;
-  fps: number;
-  hasAudio: boolean;
   size: number;
+  file?: File; // the picked file, used by the in-browser export engine
+  serverVideoId?: string; // set once the video is on the local export server
 }
 
 export interface TextStyle {
   fontFamily: string;
-  customFontUrl?: string;
-  fontSize: number; // in pixels relative to 1080x1920
+  fontSize: number; // in pixels relative to a 1080px wide video
   color: string;
   isBold: boolean;
   isItalic: boolean;
   isUppercase: boolean;
-  alignment: 'center' | 'left' | 'right';
-  letterSpacing: number; // in pixels
+  letterSpacing: number; // in pixels relative to a 1080px wide video
   lineHeight: number;
-  // Shadow & Outline
-  shadowType: 'none' | 'soft' | 'cinematic' | 'glow' | 'outline' | 'ribbon';
-  shadowColor: string;
-  shadowBlur: number;
-  shadowOffsetX: number;
-  shadowOffsetY: number;
-  // Ribbon Background
+  effect: 'none' | 'soft' | 'cinematic' | 'glow' | 'outline' | 'ribbon';
   ribbonBgColor: string;
   ribbonOpacity: number;
-  ribbonPaddingX: number;
-  ribbonPaddingY: number;
-  ribbonBorderRadius: number;
 }
 
 export interface OverlayPosition {
@@ -45,6 +32,8 @@ export interface OverlayPosition {
   fadeDuration: number; // in seconds
 }
 
+export type ExportEngine = 'server' | 'browser';
+
 export interface ExportedItem {
   id: string;
   customerName: string;
@@ -52,15 +41,19 @@ export interface ExportedItem {
   videoUrl: string;
   thumbnailUrl?: string | null;
   size: number;
-  renderTime: string;
+  blob?: Blob; // present for in-browser renders, used to build the ZIP
+}
+
+export interface ExportFailure {
+  customerName: string;
+  error: string;
 }
 
 export interface BatchProgress {
-  isRendering: boolean;
+  phase: 'idle' | 'preparing' | 'rendering' | 'finished';
   total: number;
-  current: number;
+  current: number; // 1-based index of the video being made
   currentName: string;
-  percent: number;
-  batchId: string;
-  failedCount: number;
+  percent: number; // overall progress, 0 to 100
+  stopped: boolean;
 }

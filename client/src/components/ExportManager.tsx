@@ -1,255 +1,235 @@
 import React, { useState } from 'react';
-import { Download, Rocket, CheckCircle2, FileVideo, Archive, Play, Copy, Check } from 'lucide-react';
-import type { ExportedItem, BatchProgress, VideoData } from '../types';
+import { Download, Rocket, CheckCircle2, FileVideo, Archive, Play, AlertTriangle, Loader2, Square } from 'lucide-react';
+import type { ExportedItem, BatchProgress, ExportFailure } from '../types';
+import type { TranslationKey } from '../i18n/translations';
+import { useI18n } from '../i18n/useI18n';
+import { StepCard } from './StepCard';
 
 interface ExportManagerProps {
-  videoData: VideoData | null;
-  customerNames: string[];
+  nameCount: number;
+  missing: TranslationKey | null; // why export can't start yet
   progress: BatchProgress;
   exportedItems: ExportedItem[];
-  onStartExport: (quality: 'high' | 'balanced' | 'fast') => void;
+  failures: ExportFailure[];
+  fatalError: string | null;
+  localNote: boolean;
+  onStartExport: () => void;
   onCancelExport: () => void;
-  batchId: string;
+  onDownloadAll: () => Promise<void>;
 }
 
 export const ExportManager: React.FC<ExportManagerProps> = ({
-  videoData,
-  customerNames,
+  nameCount,
+  missing,
   progress,
   exportedItems,
+  failures,
+  fatalError,
+  localNote,
   onStartExport,
   onCancelExport,
-  batchId
+  onDownloadAll,
 }) => {
-  const [quality, setQuality] = useState<'high' | 'balanced' | 'fast'>('balanced');
+  const { t } = useI18n();
   const [previewVideoUrl, setPreviewVideoUrl] = useState<string | null>(null);
-  const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [isZipping, setIsZipping] = useState(false);
+  const [zipError, setZipError] = useState(false);
 
-  const canExport = videoData !== null && customerNames.length > 0 && !progress.isRendering;
+  const isBusy = progress.phase === 'preparing' || progress.phase === 'rendering';
+  const isDone = progress.phase === 'finished';
 
-  const handleCopyLink = (url: string, id: string) => {
-    const fullUrl = window.location.origin + url;
-    navigator.clipboard.writeText(fullUrl);
-    setCopiedId(id);
-    setTimeout(() => setCopiedId(null), 2000);
+  const handleDownloadAll = async () => {
+    setIsZipping(true);
+    setZipError(false);
+    try {
+      await onDownloadAll();
+    } catch (err) {
+      console.error('ZIP failed:', err);
+      setZipError(true);
+    } finally {
+      setIsZipping(false);
+    }
   };
 
+  const doneTitle = progress.stopped
+    ? t('stopped', { n: exportedItems.length })
+    : exportedItems.length === 1
+      ? t('doneOne')
+      : t('doneMany', { n: exportedItems.length });
+
   return (
-    <div className="bg-slate-900/80 backdrop-blur border border-slate-800 rounded-3xl p-6 shadow-xl space-y-6">
-      {/* Title */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-        <div>
-          <h2 className="text-lg font-bold text-white flex items-center gap-2 m-0">
-            <span className="w-7 h-7 rounded-lg bg-emerald-500/20 text-emerald-400 flex items-center justify-center text-sm font-bold border border-emerald-500/30">
-              5
-            </span>
-            Mass Export Invitations
-          </h2>
-          <p className="text-xs text-slate-400 mt-0.5">
-            Render high-definition 9:16 MP4s with preserved audio for every customer in your list.
-          </p>
-        </div>
-
-        {/* Export Settings */}
-        <div className="flex items-center gap-2">
-          <div className="flex items-center gap-1 bg-slate-950 p-1 rounded-xl border border-slate-800 text-xs">
-            <span className="text-slate-400 px-2 font-medium">Quality:</span>
-            {(['fast', 'balanced', 'high'] as const).map((q) => (
-              <button
-                key={q}
-                onClick={() => setQuality(q)}
-                disabled={progress.isRendering}
-                className={`px-2.5 py-1 rounded-lg capitalize font-medium transition cursor-pointer ${
-                  quality === q
-                    ? 'bg-emerald-500 text-slate-950 font-bold shadow-sm'
-                    : 'text-slate-300 hover:text-white'
-                }`}
-              >
-                {q}
-              </button>
-            ))}
-          </div>
-        </div>
-      </div>
-
-      {/* Action Banner / Export Button */}
-      {!progress.isRendering && (
-        <div className="p-5 rounded-2xl bg-gradient-to-r from-emerald-950/40 via-slate-950 to-indigo-950/40 border border-emerald-500/20 flex flex-col sm:flex-row items-center justify-between gap-4">
+    <StepCard
+      step={4}
+      title={t('step4Title')}
+      description={t('step4Desc')}
+      done={isDone && exportedItems.length > 0 && failures.length === 0 && !progress.stopped}
+    >
+      <div className="space-y-4">
+        {!isBusy && (
           <div>
-            <h3 className="text-sm font-bold text-white flex items-center gap-2">
-              Ready to generate {customerNames.length} personalized videos
-            </h3>
-            <p className="text-xs text-slate-400 mt-0.5">
-              Each video will be encoded with native 1080x1920 MP4 (H.264), full audio track, and individual filenames.
-            </p>
-          </div>
-
-          <button
-            onClick={() => onStartExport(quality)}
-            disabled={!canExport}
-            className={`px-6 py-3 rounded-2xl font-bold text-sm flex items-center gap-2 transition-all shadow-xl cursor-pointer ${
-              canExport
-                ? 'bg-gradient-to-r from-emerald-500 via-teal-500 to-indigo-600 hover:from-emerald-400 hover:to-indigo-500 text-white shadow-emerald-500/20 hover:scale-[1.02]'
-                : 'bg-slate-800 text-slate-500 cursor-not-allowed'
-            }`}
-          >
-            <Rocket className="w-4 h-4" />
-            <span>Start Mass Export ({customerNames.length} Videos)</span>
-          </button>
-        </div>
-      )}
-
-      {/* Live Batch Progress Bar */}
-      {progress.isRendering && (
-        <div className="bg-slate-950 p-5 rounded-2xl border border-indigo-500/30 space-y-3 shadow-inner">
-          <div className="flex items-center justify-between text-xs">
-            <span className="font-semibold text-white flex items-center gap-2">
-              <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-ping" />
-              Rendering Video {progress.current} of {progress.total}...
-            </span>
-            <span className="font-mono text-emerald-400 font-bold">{progress.percent}%</span>
-          </div>
-
-          <div className="w-full h-3 rounded-full bg-slate-800 overflow-hidden relative">
-            <div
-              className="h-full bg-gradient-to-r from-emerald-500 via-teal-400 to-indigo-500 transition-all duration-300"
-              style={{ width: `${progress.percent}%` }}
-            />
-          </div>
-
-          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between text-xs text-slate-400 gap-2">
-            <div>
-              Current recipient: <span className="text-amber-300 font-semibold">{progress.currentName}</span>
-            </div>
             <button
-              onClick={onCancelExport}
-              className="text-xs text-rose-400 hover:text-rose-300 transition cursor-pointer"
+              type="button"
+              onClick={onStartExport}
+              disabled={missing !== null}
+              className={`w-full sm:w-auto px-6 py-3.5 rounded-xl font-bold text-base flex items-center justify-center gap-2 transition ${
+                missing === null
+                  ? 'bg-rose-500 hover:bg-rose-400 text-white cursor-pointer shadow-lg shadow-rose-500/20'
+                  : 'bg-slate-800 text-slate-500 cursor-not-allowed'
+              }`}
             >
-              Cancel Export
+              <Rocket className="w-5 h-5" />
+              {nameCount === 1 ? t('createOne') : t('createMany', { n: nameCount })}
             </button>
+            {missing && <p className="text-sm text-slate-400 mt-2 mb-0">{t(missing)}</p>}
+            {!missing && localNote && <p className="text-xs text-slate-500 mt-2 mb-0">{t('localNote')}</p>}
           </div>
-        </div>
-      )}
+        )}
 
-      {/* Completed Batch Actions: Download All as ZIP */}
-      {exportedItems.length > 0 && (
-        <div className="pt-2 border-t border-slate-800 space-y-4">
-          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-            <div>
-              <h3 className="text-sm font-bold text-white flex items-center gap-2">
-                <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-                {exportedItems.length} Videos Rendered Successfully
-              </h3>
-              <p className="text-xs text-slate-400">
-                You can download the entire bundle as a single .ZIP file or download videos one by one.
-              </p>
+        {isBusy && (
+          <div className="bg-slate-950 p-4 rounded-xl border border-slate-800 space-y-3" aria-live="polite">
+            <div className="flex items-center justify-between gap-3 text-sm">
+              <span className="font-semibold text-white flex items-center gap-2">
+                <Loader2 className="w-4 h-4 animate-spin text-rose-400" />
+                {progress.phase === 'preparing'
+                  ? t('preparing')
+                  : t('progress', { current: progress.current, total: progress.total })}
+              </span>
+              <span className="font-mono text-rose-300 font-bold">{progress.percent}%</span>
             </div>
-
-            <a
-              href={`/api/download-zip/${batchId}`}
-              download
-              className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-white font-bold text-xs flex items-center gap-2 shadow-lg shadow-emerald-500/20 transition cursor-pointer"
+            <div
+              className="w-full h-3 rounded-full bg-slate-800 overflow-hidden"
+              role="progressbar"
+              aria-valuemin={0}
+              aria-valuemax={100}
+              aria-valuenow={progress.percent}
             >
-              <Archive className="w-4 h-4" />
-              Download All as ZIP (.zip)
-            </a>
-          </div>
-
-          {/* Exported Videos Grid */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 max-h-96 overflow-y-auto pr-1">
-            {exportedItems.map((item) => (
-              <div
-                key={item.id}
-                className="bg-slate-950/70 border border-slate-800 rounded-2xl p-3 flex flex-col justify-between gap-2.5 hover:border-slate-700 transition"
+              <div className="h-full bg-rose-500 transition-all duration-300" style={{ width: `${progress.percent}%` }} />
+            </div>
+            <div className="flex items-center justify-between gap-3 text-sm text-slate-400">
+              <span className="truncate">{progress.currentName && t('nowMaking', { name: progress.currentName })}</span>
+              <button
+                type="button"
+                onClick={onCancelExport}
+                className="shrink-0 px-3 py-1.5 rounded-lg text-red-300 hover:bg-red-500/10 transition flex items-center gap-1.5 cursor-pointer"
               >
-                <div className="flex items-start gap-3">
-                  {/* Thumbnail / Video icon */}
-                  <div
+                <Square className="w-3.5 h-3.5 fill-current" />
+                {t('stop')}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {fatalError && (
+          <div className="p-4 rounded-xl bg-red-500/10 border border-red-500/30 text-red-200 text-sm flex items-start gap-2" role="alert">
+            <AlertTriangle className="w-5 h-5 shrink-0" />
+            <span>{fatalError}</span>
+          </div>
+        )}
+
+        {failures.length > 0 && (
+          <div className="p-4 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-100 text-sm" role="alert">
+            <p className="font-semibold m-0 mb-1 flex items-center gap-2">
+              <AlertTriangle className="w-4 h-4" />
+              {t('failedSome', { n: failures.length })}
+            </p>
+            <ul className="m-0 pl-6 space-y-0.5">
+              {failures.slice(0, 5).map((f, i) => (
+                <li key={i}>
+                  <b>{f.customerName}</b>: {f.error}
+                </li>
+              ))}
+              {failures.length > 5 && <li>…</li>}
+            </ul>
+          </div>
+        )}
+
+        {exportedItems.length > 0 && (
+          <div className="pt-4 border-t border-slate-800 space-y-3">
+            {!isBusy && (
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <p className="text-base font-bold text-white flex items-center gap-2 m-0">
+                  <CheckCircle2 className="w-5 h-5 text-emerald-400" />
+                  {doneTitle}
+                </p>
+                <button
+                  type="button"
+                  onClick={handleDownloadAll}
+                  disabled={isZipping}
+                  className="px-5 py-3 rounded-xl bg-emerald-500 hover:bg-emerald-400 disabled:opacity-60 text-slate-950 font-bold text-sm flex items-center justify-center gap-2 transition cursor-pointer"
+                >
+                  {isZipping ? <Loader2 className="w-4 h-4 animate-spin" /> : <Archive className="w-4 h-4" />}
+                  {isZipping ? t('zipping') : t('downloadAll')}
+                </button>
+              </div>
+            )}
+            {zipError && <p className="text-sm text-red-300 m-0">{t('errZip')}</p>}
+
+            <ul className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-96 overflow-y-auto pr-1 m-0 p-0 list-none">
+              {exportedItems.map(item => (
+                <li key={item.id} className="bg-slate-950/70 border border-slate-800 rounded-xl p-2.5 flex items-center gap-3">
+                  <button
+                    type="button"
                     onClick={() => setPreviewVideoUrl(item.videoUrl)}
-                    className="w-12 h-16 rounded-xl bg-slate-900 border border-slate-800 flex items-center justify-center shrink-0 cursor-pointer overflow-hidden relative group"
+                    title={t('watch')}
+                    className="w-10 h-14 rounded-lg bg-slate-800 flex items-center justify-center shrink-0 overflow-hidden relative cursor-pointer"
                   >
                     {item.thumbnailUrl ? (
-                      <img src={item.thumbnailUrl} alt="Thumbnail" className="w-full h-full object-cover" />
+                      <img src={item.thumbnailUrl} alt="" className="w-full h-full object-cover" />
                     ) : (
-                      <FileVideo className="w-5 h-5 text-indigo-400" />
+                      <FileVideo className="w-5 h-5 text-rose-400" />
                     )}
-                    <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition">
-                      <Play className="w-4 h-4 text-white fill-white" />
-                    </div>
-                  </div>
-
+                  </button>
                   <div className="flex-1 min-w-0">
-                    <h4 className="text-xs font-semibold text-white truncate" title={item.customerName}>
+                    <p className="text-sm font-semibold text-white truncate m-0" title={item.customerName}>
                       {item.customerName}
-                    </h4>
-                    <p className="text-[11px] text-slate-400 truncate mt-0.5">{item.filename}</p>
-                    <div className="flex items-center gap-2 text-[10px] text-slate-500 mt-1">
-                      <span>{(item.size / (1024 * 1024)).toFixed(1)} MB</span>
-                      <span>•</span>
-                      <span>{item.renderTime}</span>
-                    </div>
+                    </p>
+                    <p className="text-xs text-slate-500 m-0">{(item.size / (1024 * 1024)).toFixed(1)} MB</p>
                   </div>
-                </div>
-
-                {/* Actions */}
-                <div className="flex items-center gap-1.5 pt-2 border-t border-slate-800/80">
+                  <button
+                    type="button"
+                    onClick={() => setPreviewVideoUrl(item.videoUrl)}
+                    title={t('watch')}
+                    aria-label={`${t('watch')}: ${item.customerName}`}
+                    className="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 transition cursor-pointer"
+                  >
+                    <Play className="w-4 h-4" />
+                  </button>
                   <a
                     href={item.videoUrl}
                     download={item.filename}
-                    className="flex-1 py-1.5 px-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-medium flex items-center justify-center gap-1 transition"
+                    title={t('download')}
+                    aria-label={`${t('download')}: ${item.customerName}`}
+                    className="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-emerald-400 transition"
                   >
-                    <Download className="w-3.5 h-3.5 text-emerald-400" />
-                    <span>Download</span>
+                    <Download className="w-4 h-4" />
                   </a>
-
-                  <button
-                    onClick={() => handleCopyLink(item.videoUrl, item.id)}
-                    className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white transition"
-                    title="Copy Video Link"
-                  >
-                    {copiedId === item.id ? (
-                      <Check className="w-3.5 h-3.5 text-emerald-400" />
-                    ) : (
-                      <Copy className="w-3.5 h-3.5" />
-                    )}
-                  </button>
-
-                  <button
-                    onClick={() => setPreviewVideoUrl(item.videoUrl)}
-                    className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white transition"
-                    title="Watch Video"
-                  >
-                    <Play className="w-3.5 h-3.5 text-indigo-400" />
-                  </button>
-                </div>
-              </div>
-            ))}
+                </li>
+              ))}
+            </ul>
           </div>
-        </div>
-      )}
+        )}
+      </div>
 
-      {/* Video Modal Preview */}
       {previewVideoUrl && (
         <div
           className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4"
           onClick={() => setPreviewVideoUrl(null)}
         >
           <div
-            className="relative bg-slate-900 rounded-3xl p-3 max-w-sm w-full border border-slate-700 shadow-2xl"
-            onClick={(e) => e.stopPropagation()}
+            className="bg-slate-900 rounded-2xl p-3 max-w-sm w-full border border-slate-700 shadow-2xl"
+            onClick={e => e.stopPropagation()}
           >
-            <div className="w-full aspect-[9/16] rounded-2xl overflow-hidden bg-black">
-              <video src={previewVideoUrl} controls autoPlay className="w-full h-full object-cover" />
-            </div>
+            <video src={previewVideoUrl} controls autoPlay playsInline className="w-full max-h-[75vh] rounded-xl bg-black" />
             <button
+              type="button"
               onClick={() => setPreviewVideoUrl(null)}
-              className="mt-3 w-full py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-white text-xs font-semibold transition"
+              className="mt-3 w-full py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-white text-sm font-semibold transition cursor-pointer"
             >
-              Close Preview
+              {t('close')}
             </button>
           </div>
         </div>
       )}
-    </div>
+    </StepCard>
   );
 };

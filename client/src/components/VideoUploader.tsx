@@ -1,199 +1,148 @@
 import React, { useRef, useState } from 'react';
-import { UploadCloud, CheckCircle2, Music, Clock, Maximize, FileVideo, Sparkles, RefreshCw } from 'lucide-react';
+import { UploadCloud, FileVideo, RefreshCw, Sparkles, AlertTriangle } from 'lucide-react';
 import type { VideoData } from '../types';
+import { useI18n } from '../i18n/useI18n';
+import { StepCard } from './StepCard';
 
 interface VideoUploaderProps {
   videoData: VideoData | null;
+  previewFailed: boolean;
   onVideoSelected: (file: File) => void;
   onLoadSample: () => void;
   sampleAvailable: boolean;
-  isUploading: boolean;
-  uploadProgress: number;
+  isLoadingSample: boolean;
+}
+
+function isVideoFile(file: File): boolean {
+  return file.type.startsWith('video/') || /\.(mp4|mov|m4v|webm)$/i.test(file.name);
 }
 
 export const VideoUploader: React.FC<VideoUploaderProps> = ({
   videoData,
+  previewFailed,
   onVideoSelected,
   onLoadSample,
   sampleAvailable,
-  isUploading,
-  uploadProgress
+  isLoadingSample,
 }) => {
+  const { t } = useI18n();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isDragOver, setIsDragOver] = useState(false);
+  const [wrongFile, setWrongFile] = useState(false);
+
+  const pickFile = (file: File | undefined) => {
+    if (!file) return;
+    if (!isVideoFile(file)) {
+      setWrongFile(true);
+      return;
+    }
+    setWrongFile(false);
+    onVideoSelected(file);
+  };
 
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
     setIsDragOver(false);
-    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
-      const file = e.dataTransfer.files[0];
-      if (file.type.startsWith('video/') || file.name.endsWith('.mp4')) {
-        onVideoSelected(file);
-      }
-    }
+    pickFile(e.dataTransfer.files?.[0]);
   };
 
-  const handleDragOver = (e: React.DragEvent) => {
-    e.preventDefault();
-    setIsDragOver(true);
-  };
-
-  const handleDragLeave = () => {
-    setIsDragOver(false);
-  };
-
-  const handleFileInput = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files.length > 0) {
-      onVideoSelected(e.target.files[0]);
-    }
-  };
+  const warnings: string[] = [];
+  if (wrongFile) warnings.push(t('notVideoFile'));
+  if (videoData && previewFailed) warnings.push(t('cannotPreview'));
+  if (videoData && !previewFailed && videoData.width >= videoData.height) warnings.push(t('notVertical'));
 
   return (
-    <div className="bg-slate-900/80 backdrop-blur border border-slate-800 rounded-3xl p-6 shadow-xl relative overflow-hidden">
-      <div className="flex items-center justify-between mb-4">
-        <div>
-          <h2 className="text-lg font-bold text-white flex items-center gap-2 m-0">
-            <span className="w-7 h-7 rounded-lg bg-rose-500/20 text-rose-400 flex items-center justify-center text-sm font-bold border border-rose-500/30">
-              1
-            </span>
-            Upload Reel Video (9:16 MP4)
-          </h2>
-          <p className="text-xs text-slate-400 mt-0.5">
-            Upload your base vertical invitation video with a blank space for customer names.
-          </p>
-        </div>
-
-        {videoData && (
+    <StepCard
+      step={1}
+      title={t('step1Title')}
+      description={t('step1Desc')}
+      done={videoData !== null}
+      action={
+        videoData && (
           <button
+            type="button"
             onClick={() => fileInputRef.current?.click()}
-            className="text-xs text-slate-300 hover:text-white px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 transition flex items-center gap-1.5 cursor-pointer"
+            className="shrink-0 text-sm text-slate-200 px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 transition flex items-center gap-1.5 cursor-pointer"
           >
-            <RefreshCw className="w-3.5 h-3.5" />
-            Change Video
+            <RefreshCw className="w-4 h-4" />
+            {t('changeVideo')}
           </button>
-        )}
-      </div>
-
+        )
+      }
+    >
       <input
         ref={fileInputRef}
         type="file"
-        accept="video/mp4,video/quicktime,video/webm"
+        accept="video/mp4,video/quicktime,video/webm,.mp4,.mov,.m4v,.webm"
         className="hidden"
-        onChange={handleFileInput}
+        onChange={e => {
+          pickFile(e.target.files?.[0]);
+          e.target.value = '';
+        }}
       />
 
       {!videoData ? (
         <div
+          role="button"
+          tabIndex={0}
           onDrop={handleDrop}
-          onDragOver={handleDragOver}
-          onDragLeave={handleDragLeave}
+          onDragOver={e => {
+            e.preventDefault();
+            setIsDragOver(true);
+          }}
+          onDragLeave={() => setIsDragOver(false)}
           onClick={() => fileInputRef.current?.click()}
-          className={`border-2 border-dashed rounded-2xl p-8 text-center cursor-pointer transition-all ${
-            isDragOver
-              ? 'border-rose-500 bg-rose-500/10 scale-[1.01]'
-              : 'border-slate-700/80 hover:border-slate-600 bg-slate-950/40 hover:bg-slate-950/60'
+          onKeyDown={e => {
+            if (e.key === 'Enter' || e.key === ' ') fileInputRef.current?.click();
+          }}
+          className={`border-2 border-dashed rounded-2xl p-8 text-center cursor-pointer transition ${
+            isDragOver ? 'border-rose-500 bg-rose-500/10' : 'border-slate-700 hover:border-slate-500 bg-slate-950/40'
           }`}
         >
-          <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-rose-500/20 to-indigo-500/20 text-rose-400 flex items-center justify-center mx-auto mb-4 border border-rose-500/30 shadow-inner">
-            <UploadCloud className="w-8 h-8 text-rose-400 animate-pulse" />
-          </div>
+          <UploadCloud className="w-10 h-10 text-rose-400 mx-auto mb-3" />
+          <p className="text-base font-semibold text-white mb-3">{t('dropTitle')}</p>
+          <span className="inline-block px-5 py-2.5 rounded-xl text-sm font-semibold bg-rose-500 hover:bg-rose-400 text-white transition">
+            {t('chooseFile')}
+          </span>
+          <p className="text-xs text-slate-400 mt-3">{t('dropHint')}</p>
 
-          <h3 className="text-base font-semibold text-white mb-1">
-            Drag and drop your 9:16 vertical video here
-          </h3>
-          <p className="text-xs text-slate-400 max-w-md mx-auto mb-4">
-            Supports MP4, MOV, WebM reels (Recommended: 1080x1920 Full HD vertical format)
-          </p>
-
-          <div className="flex flex-wrap items-center justify-center gap-3">
+          {sampleAvailable && (
             <button
               type="button"
-              className="px-4 py-2 rounded-xl text-xs font-semibold bg-gradient-to-r from-rose-600 to-indigo-600 text-white shadow-lg shadow-rose-600/25 hover:from-rose-500 hover:to-indigo-500 transition"
+              onClick={e => {
+                e.stopPropagation();
+                onLoadSample();
+              }}
+              disabled={isLoadingSample}
+              className="mt-4 px-4 py-2 rounded-xl text-sm font-medium text-amber-300 border border-amber-500/40 hover:bg-amber-500/10 transition inline-flex items-center gap-1.5 cursor-pointer"
             >
-              Browse Computer File
+              <Sparkles className="w-4 h-4" />
+              {isLoadingSample ? t('loadingSample') : t('useSample')}
             </button>
-
-            {sampleAvailable && (
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onLoadSample();
-                }}
-                className="px-4 py-2 rounded-xl text-xs font-semibold bg-amber-500/15 text-amber-300 border border-amber-500/30 hover:bg-amber-500/25 transition flex items-center gap-1.5"
-              >
-                <Sparkles className="w-3.5 h-3.5 text-amber-400" />
-                Use Desktop Sample (You are inivated.mp4)
-              </button>
-            )}
-          </div>
-
-          {isUploading && (
-            <div className="mt-5 max-w-sm mx-auto">
-              <div className="flex justify-between text-xs text-slate-400 mb-1 font-medium">
-                <span>Processing video...</span>
-                <span>{uploadProgress}%</span>
-              </div>
-              <div className="w-full h-2 rounded-full bg-slate-800 overflow-hidden">
-                <div
-                  className="h-full bg-gradient-to-r from-rose-500 to-indigo-500 transition-all duration-300"
-                  style={{ width: `${uploadProgress}%` }}
-                />
-              </div>
-            </div>
           )}
         </div>
       ) : (
-        /* Video Loaded Information Card */
-        <div className="bg-slate-950/60 border border-slate-800/80 rounded-2xl p-4">
-          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-            
-            <div className="flex items-center gap-3.5">
-              <div className="w-12 h-16 rounded-xl bg-slate-800 border border-slate-700 flex items-center justify-center shrink-0 overflow-hidden relative shadow-md">
-                <FileVideo className="w-6 h-6 text-rose-400" />
-                <span className="absolute bottom-1 text-[8px] font-bold text-amber-300 bg-black/60 px-1 rounded">
-                  9:16
-                </span>
-              </div>
-              <div>
-                <div className="flex items-center gap-2">
-                  <h4 className="text-sm font-semibold text-white truncate max-w-[280px]">
-                    {videoData.originalName}
-                  </h4>
-                  <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 flex items-center gap-1 font-medium">
-                    <CheckCircle2 className="w-3 h-3" /> Ready
-                  </span>
-                </div>
-                <p className="text-xs text-slate-400 mt-0.5">
-                  {(videoData.size / (1024 * 1024)).toFixed(1)} MB • {videoData.fps} FPS
-                </p>
-              </div>
-            </div>
-
-            {/* Badges */}
-            <div className="flex flex-wrap items-center gap-2 text-xs">
-              <div className="px-3 py-1.5 rounded-xl bg-slate-800/80 border border-slate-700/80 flex items-center gap-1.5 text-slate-200">
-                <Maximize className="w-3.5 h-3.5 text-indigo-400" />
-                <span className="font-semibold">{videoData.width} × {videoData.height}</span>
-                {videoData.height > videoData.width && (
-                  <span className="text-[10px] text-emerald-400 font-bold ml-1">9:16</span>
-                )}
-              </div>
-
-              <div className="px-3 py-1.5 rounded-xl bg-slate-800/80 border border-slate-700/80 flex items-center gap-1.5 text-slate-200">
-                <Clock className="w-3.5 h-3.5 text-amber-400" />
-                <span>{videoData.duration.toFixed(1)}s</span>
-              </div>
-
-              <div className="px-3 py-1.5 rounded-xl bg-slate-800/80 border border-slate-700/80 flex items-center gap-1.5 text-slate-200">
-                <Music className="w-3.5 h-3.5 text-rose-400" />
-                <span>{videoData.hasAudio ? 'Audio Stream Preserved' : 'Silent Reel'}</span>
-              </div>
-            </div>
-
+        <div className="flex items-center gap-3 bg-slate-950/60 border border-slate-800 rounded-xl p-3">
+          <div className="w-10 h-12 rounded-lg bg-slate-800 flex items-center justify-center shrink-0">
+            <FileVideo className="w-5 h-5 text-rose-400" />
+          </div>
+          <div className="min-w-0">
+            <p className="text-sm font-semibold text-white truncate m-0">{videoData.name}</p>
+            <p className="text-xs text-slate-400 m-0">
+              {videoData.width}×{videoData.height}
+              {videoData.duration > 0 && ` · ${videoData.duration.toFixed(1)}s`}
+              {videoData.size > 0 && ` · ${(videoData.size / (1024 * 1024)).toFixed(1)} MB`}
+            </p>
           </div>
         </div>
       )}
-    </div>
+
+      {warnings.map(w => (
+        <p key={w} className="mt-3 mb-0 text-sm text-amber-300 flex items-start gap-2">
+          <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+          {w}
+        </p>
+      ))}
+    </StepCard>
   );
 };

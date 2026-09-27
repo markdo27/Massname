@@ -4,37 +4,29 @@ An intuitive, high-performance web tool designed to mass-personalize and export 
 
 ---
 
-## ⚡ Key Features
+## ⚡ How it works (4 simple steps)
 
-1. **Reel Video Upload (9:16 MP4)**:
-   - Supports 9:16 vertical videos (1080x1920 Full HD).
-   - Detects video dimensions, duration, FPS, and preserves original audio tracks.
-   - 1-click desktop sample loader for rapid testing.
+1. **Choose your video**: a vertical 9:16 video (MP4, MOV or WebM, best at 1080×1920) with an empty space for the name.
+2. **Type guest names**: one name per line, or import a `.txt` / `.csv` file (first column; a "Name" / "Họ và tên" header row is skipped).
+3. **Style the name**: pick a font, size, color, effect and position. Drag or tap the name on the live preview to move it.
+   Bold/italic/uppercase, letter spacing, your own font file and "show the name only during part of the video" are under **More options**.
+4. **Create the videos**: one MP4 per name, with the original audio kept. Download them one by one or all at once as a ZIP.
 
-2. **Streamlined Customer Name Input (Fill Name Only)**:
-   - Paste recipient names directly (one customer per line).
-   - Import names from `.txt` or `.csv` files.
-   - Interactive preview chips to test any customer name on the live canvas.
+### 🇻🇳 English & Tiếng Việt
 
-3. **Curated Typography**:
-   - **Playfair Display**: Timeless, elegant luxury serif.
-   - **Poppins**: Clean, modern geometric sans-serif.
-   - **Archivo Black**: Bold, heavyweight display font with high impact.
-   - Custom `.ttf` / `.otf` font file upload support.
-   - Color palettes: Pure White, Imperial Gold, Rose Gold, Champagne, Obsidian Black, etc.
-   - Readability styles: Soft Shadow, Cinematic Drop, Glow, Outline Stroke, Ribbon Banner.
+The whole interface is available in English and Vietnamese. The language is picked automatically from the browser
+and can be switched at any time with the **English / Tiếng Việt** buttons (the choice is remembered).
+Share a link that opens straight in Vietnamese with `?lang=vi`, e.g. `https://markdo27.github.io/Massname/?lang=vi`.
 
-4. **Visual 9:16 Smartphone Preview & Positioning**:
-   - Live video preview with playback controls & timeline scrubber.
-   - **Click & Drag**: Position customer names anywhere on the video screen.
-   - Magnetic snapping guides (center X and Y alignment lines).
-   - Quick Align presets (Top Third, Center, Lower Third, Bottom).
+All fonts (Playfair Display, Montserrat, Great Vibes, Anton) include full Vietnamese glyphs, so names such as
+"Nguyễn Thị Hằng" render correctly.
 
-5. **Hardware-Accelerated Mass Export**:
-   - Powered by FFmpeg static binary.
-   - Preserves 100% of original audio with zero re-encoding loss.
-   - Live batch progress bar (~1-2 seconds per 1080p video).
-   - **Download All as ZIP (.zip)** or download individual videos.
+### 🎬 Two export engines
+
+- **In the browser** (used on GitHub Pages or whenever the local server isn't running): the video is processed on the
+  visitor's own computer with WebCodecs. Nothing is uploaded. Works best in **Google Chrome or Microsoft Edge** on a computer.
+- **Local FFmpeg server** (used automatically when you run the app locally with `npm run dev` / `npm start`):
+  the video is rendered by FFmpeg on your machine and works in any browser.
 
 ---
 

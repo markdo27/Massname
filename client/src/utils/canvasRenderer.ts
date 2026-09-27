@@ -1,18 +1,37 @@
 import type { TextStyle, OverlayPosition } from '../types';
 
+// Style sizes are defined for a 1080px wide video and scaled to the real video width.
+export const REFERENCE_WIDTH = 1080;
+
+export function buildFontSpec(style: TextStyle, fontSizePx: number): string {
+  const fontStyle = style.isItalic ? 'italic' : 'normal';
+  const fontWeight = style.isBold ? 'bold' : 'normal';
+  return `${fontStyle} ${fontWeight} ${fontSizePx}px "${style.fontFamily}", sans-serif`;
+}
+
+export function displayName(name: string, style: TextStyle): string {
+  return style.isUppercase ? name.toUpperCase() : name;
+}
+
 /**
- * Render text overlay onto a canvas matching exact video dimensions (e.g. 1080x1920)
- * Returns a high-res transparent PNG Data URL.
+ * Render the name onto a transparent canvas matching the exact video dimensions (e.g. 1080x1920).
  */
-export async function renderTextOverlayToDataUrl(
+export async function renderTextOverlay(
   nameText: string,
   style: TextStyle,
   pos: OverlayPosition,
-  videoWidth: number = 1080,
-  videoHeight: number = 1920
-): Promise<string> {
-  // Ensure fonts are ready
+  videoWidth: number,
+  videoHeight: number
+): Promise<HTMLCanvasElement> {
+  const scale = videoWidth / REFERENCE_WIDTH;
+  const fontSize = style.fontSize * scale;
+  const fontSpec = buildFontSpec(style, fontSize);
+  const text = displayName(nameText, style);
+
+  // Web fonts are split by character range (e.g. a separate Vietnamese file),
+  // so explicitly load the glyphs this particular name needs before drawing.
   try {
+    await document.fonts.load(fontSpec, text);
     await document.fonts.ready;
   } catch (e) {
     console.warn('Font loading check error:', e);
@@ -24,108 +43,87 @@ export async function renderTextOverlayToDataUrl(
   const ctx = canvas.getContext('2d');
   if (!ctx) throw new Error('Could not get 2D canvas context');
 
-  ctx.clearRect(0, 0, videoWidth, videoHeight);
-
-  // Formatting text
-  let displayText = nameText;
-  if (style.isUppercase) {
-    displayText = displayText.toUpperCase();
-  }
-
-  const lines = displayText.split('\n');
-
-  // Calculate target coordinates based on percentages
+  const lines = text.split('\n');
   const targetX = (pos.xPercent / 100) * videoWidth;
   const targetY = (pos.yPercent / 100) * videoHeight;
 
-  // Font setup
-  const fontStyle = style.isItalic ? 'italic' : 'normal';
-  const fontWeight = style.isBold ? 'bold' : 'normal';
-  const fontSize = style.fontSize;
-  ctx.font = `${fontStyle} ${fontWeight} ${fontSize}px "${style.fontFamily}", sans-serif`;
-  ctx.textAlign = style.alignment;
+  ctx.font = fontSpec;
+  ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-
-  // Apply letter spacing if supported
-  if ('letterSpacing' in ctx && typeof (ctx as any).letterSpacing === 'string') {
-    (ctx as any).letterSpacing = `${style.letterSpacing}px`;
+  if ('letterSpacing' in ctx) {
+    ctx.letterSpacing = `${style.letterSpacing * scale}px`;
   }
 
   const lineHeight = fontSize * style.lineHeight;
   const totalTextHeight = lines.length * lineHeight;
-  const startY = targetY - (totalTextHeight / 2) + (lineHeight / 2);
+  const startY = targetY - totalTextHeight / 2 + lineHeight / 2;
 
-  // If ribbon background is enabled, measure and draw background box first
-  if (style.shadowType === 'ribbon') {
-    let maxWidth = 0;
-    lines.forEach(line => {
-      const metrics = ctx.measureText(line);
-      if (metrics.width > maxWidth) maxWidth = metrics.width;
-    });
-
-    const padX = style.ribbonPaddingX;
-    const padY = style.ribbonPaddingY;
+  if (style.effect === 'ribbon') {
+    const maxWidth = Math.max(...lines.map(line => ctx.measureText(line).width));
+    const padX = 32 * scale;
+    const padY = 16 * scale;
     const boxWidth = maxWidth + padX * 2;
     const boxHeight = totalTextHeight + padY * 2;
-
-    let boxX = targetX - (boxWidth / 2);
-    if (style.alignment === 'left') boxX = targetX - padX;
-    if (style.alignment === 'right') boxX = targetX - maxWidth - padX;
-    const boxY = targetY - (boxHeight / 2);
+    const boxX = targetX - boxWidth / 2;
+    const boxY = targetY - boxHeight / 2;
 
     ctx.save();
     ctx.fillStyle = style.ribbonBgColor;
     ctx.globalAlpha = style.ribbonOpacity;
-    const rad = style.ribbonBorderRadius;
-
-    if (ctx.roundRect) {
-      ctx.beginPath();
-      ctx.roundRect(boxX, boxY, boxWidth, boxHeight, rad);
-      ctx.fill();
-    } else {
-      ctx.fillRect(boxX, boxY, boxWidth, boxHeight);
-    }
+    ctx.beginPath();
+    ctx.roundRect(boxX, boxY, boxWidth, boxHeight, 16 * scale);
+    ctx.fill();
     ctx.restore();
   }
 
-  // Draw shadow if not ribbon
   ctx.save();
-  if (style.shadowType === 'soft') {
-    ctx.shadowColor = style.shadowColor || 'rgba(0, 0, 0, 0.6)';
-    ctx.shadowBlur = style.shadowBlur || 12;
-    ctx.shadowOffsetX = style.shadowOffsetX || 2;
-    ctx.shadowOffsetY = style.shadowOffsetY || 4;
-  } else if (style.shadowType === 'cinematic') {
-    ctx.shadowColor = style.shadowColor || 'rgba(0, 0, 0, 0.85)';
-    ctx.shadowBlur = style.shadowBlur || 20;
-    ctx.shadowOffsetX = style.shadowOffsetX || 4;
-    ctx.shadowOffsetY = style.shadowOffsetY || 8;
-  } else if (style.shadowType === 'glow') {
-    ctx.shadowColor = style.shadowColor || 'rgba(255, 215, 0, 0.8)';
-    ctx.shadowBlur = style.shadowBlur || 24;
-    ctx.shadowOffsetX = 0;
-    ctx.shadowOffsetY = 0;
+  if (style.effect === 'soft') {
+    ctx.shadowColor = 'rgba(0, 0, 0, 0.75)';
+    ctx.shadowBlur = 14 * scale;
+    ctx.shadowOffsetX = 2 * scale;
+    ctx.shadowOffsetY = 4 * scale;
+  } else if (style.effect === 'cinematic') {
+    ctx.shadowColor = 'rgba(0, 0, 0, 0.85)';
+    ctx.shadowBlur = 20 * scale;
+    ctx.shadowOffsetX = 4 * scale;
+    ctx.shadowOffsetY = 8 * scale;
+  } else if (style.effect === 'glow') {
+    ctx.shadowColor = style.color;
+    ctx.shadowBlur = 24 * scale;
   }
 
-  // Outline stroke if outline type
-  if (style.shadowType === 'outline') {
-    ctx.strokeStyle = style.shadowColor || '#000000';
-    ctx.lineWidth = 6;
+  if (style.effect === 'outline') {
+    ctx.strokeStyle = 'rgba(0, 0, 0, 0.85)';
+    ctx.lineWidth = 8 * scale;
     ctx.lineJoin = 'round';
-    lines.forEach((line, idx) => {
-      const lineY = startY + idx * lineHeight;
-      ctx.strokeText(line, targetX, lineY);
-    });
+    lines.forEach((line, idx) => ctx.strokeText(line, targetX, startY + idx * lineHeight));
   }
 
-  // Draw filled text
   ctx.fillStyle = style.color;
-  lines.forEach((line, idx) => {
-    const lineY = startY + idx * lineHeight;
-    ctx.fillText(line, targetX, lineY);
-  });
-
+  lines.forEach((line, idx) => ctx.fillText(line, targetX, startY + idx * lineHeight));
   ctx.restore();
 
-  return canvas.toDataURL('image/png');
+  return canvas;
+}
+
+/** CSS equivalent of the canvas effects, for the live preview. `scale` is preview px per video px. */
+export function previewTextShadow(style: TextStyle, scale: number): string {
+  const px = (v: number) => `${(v * scale).toFixed(2)}px`;
+  switch (style.effect) {
+    case 'soft':
+      return `${px(2)} ${px(4)} ${px(14)} rgba(0, 0, 0, 0.75)`;
+    case 'cinematic':
+      return `${px(4)} ${px(8)} ${px(20)} rgba(0, 0, 0, 0.85)`;
+    case 'glow':
+      return `0 0 ${px(24)} ${style.color}`;
+    case 'outline': {
+      const o = px(4);
+      const n = `-${o}`;
+      return [`${n} ${n}`, `${o} ${n}`, `${n} ${o}`, `${o} ${o}`, `0 ${n}`, `0 ${o}`, `${n} 0`, `${o} 0`]
+        .map(offset => `${offset} 0 rgba(0, 0, 0, 0.85)`)
+        .join(', ');
+    }
+    default:
+      return 'none';
+  }
 }
