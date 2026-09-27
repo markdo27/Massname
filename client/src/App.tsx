@@ -1,413 +1,393 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
 import confetti from 'canvas-confetti';
+import type { VideoCodec } from 'mediabunny';
 import { Header } from './components/Header';
 import { VideoUploader } from './components/VideoUploader';
 import { CustomerListManager } from './components/CustomerListManager';
 import { TypographyControls } from './components/TypographyControls';
 import { VideoPreviewCanvas } from './components/VideoPreviewCanvas';
 import { ExportManager } from './components/ExportManager';
-import type { VideoData, TextStyle, OverlayPosition, ExportedItem, BatchProgress } from './types';
-import { renderTextOverlayToDataUrl } from './utils/canvasRenderer';
-import { SAMPLE_NAMES } from './constants/fonts';
+import type {
+  VideoData,
+  TextStyle,
+  OverlayPosition,
+  ExportedItem,
+  ExportFailure,
+  BatchProgress,
+  ExportEngine,
+} from './types';
+import { useI18n } from './i18n/useI18n';
+import { renderTextOverlay } from './utils/canvasRenderer';
+import { ExportError } from './utils/exportError';
+import {
+  getServerStatus,
+  loadServerSample,
+  renderOnServer,
+  serverZipUrl,
+  uploadVideoToServer,
+  type ServerStatus,
+  type ServerVideo,
+} from './utils/serverApi';
+import { downloadItemsAsZip, triggerDownload, uniqueVideoFileName } from './utils/files';
+
+const DEFAULT_STYLE: TextStyle = {
+  fontFamily: 'Playfair Display',
+  fontSize: 72,
+  color: '#D4AF37',
+  isBold: false,
+  isItalic: false,
+  isUppercase: false,
+  letterSpacing: 2,
+  lineHeight: 1.2,
+  effect: 'soft',
+  ribbonBgColor: '#000000',
+  ribbonOpacity: 0.6,
+};
+
+const IDLE_PROGRESS: BatchProgress = {
+  phase: 'idle',
+  total: 0,
+  current: 0,
+  currentName: '',
+  percent: 0,
+  stopped: false,
+};
+
+function readVideoMetadata(url: string): Promise<{ width: number; height: number; duration: number } | null> {
+  return new Promise(resolve => {
+    const video = document.createElement('video');
+    const timer = setTimeout(() => resolve(null), 15000);
+    video.preload = 'metadata';
+    video.muted = true;
+    video.onloadedmetadata = () => {
+      clearTimeout(timer);
+      resolve(
+        video.videoWidth > 0
+          ? {
+              width: video.videoWidth,
+              height: video.videoHeight,
+              duration: Number.isFinite(video.duration) ? video.duration : 0,
+            }
+          : null
+      );
+    };
+    video.onerror = () => {
+      clearTimeout(timer);
+      resolve(null);
+    };
+    video.src = url;
+  });
+}
 
 export function App() {
-  const [currentStep, setCurrentStep] = useState(1);
-  const [sampleAvailable, setSampleAvailable] = useState(false);
+  const { t } = useI18n();
+  const [serverStatus, setServerStatus] = useState<ServerStatus>({ available: false, sampleAvailable: false });
   const [isLoadingSample, setIsLoadingSample] = useState(false);
 
-  // Video State
   const [videoData, setVideoData] = useState<VideoData | null>(null);
-  const [isUploading, setIsUploading] = useState(false);
-  const [uploadProgress, setUploadProgress] = useState(0);
+  const [previewFailed, setPreviewFailed] = useState(false);
+  // Resolves once the background upload to the local server finishes (null when there is no server).
+  const uploadRef = useRef<Promise<ServerVideo | null> | null>(null);
 
-  // Customer List State (Names only)
-  const [rawNamesText, setRawNamesText] = useState(SAMPLE_NAMES.slice(0, 5).join('\n'));
+  const [rawNamesText, setRawNamesText] = useState('');
   const [activePreviewIndex, setActivePreviewIndex] = useState(0);
 
-  // Typography State (Default to Playfair Display)
-  const [textStyle, setTextStyle] = useState<TextStyle>({
-    fontFamily: 'Playfair Display',
-    fontSize: 72,
-    color: '#D4AF37', // Imperial Gold
-    isBold: false,
-    isItalic: false,
-    isUppercase: false,
-    alignment: 'center',
-    letterSpacing: 2,
-    lineHeight: 1.2,
-    shadowType: 'soft',
-    shadowColor: 'rgba(0, 0, 0, 0.75)',
-    shadowBlur: 14,
-    shadowOffsetX: 2,
-    shadowOffsetY: 4,
-    ribbonBgColor: '#000000',
-    ribbonOpacity: 0.6,
-    ribbonPaddingX: 32,
-    ribbonPaddingY: 16,
-    ribbonBorderRadius: 16
-  });
-  const [isUploadingFont] = useState(false);
-
-  // Positioning & Timing State
+  const [textStyle, setTextStyle] = useState<TextStyle>(DEFAULT_STYLE);
   const [position, setPosition] = useState<OverlayPosition>({
     xPercent: 50,
-    yPercent: 70, // Standard elegant lower third
+    yPercent: 78,
     timeStart: 0,
     timeEnd: 10,
     showAlways: true,
-    fadeDuration: 0.5
+    fadeDuration: 0.5,
   });
 
-  // Export State
-  const [batchId, setBatchId] = useState(`batch_${Date.now()}`);
-  const [progress, setProgress] = useState<BatchProgress>({
-    isRendering: false,
-    total: 0,
-    current: 0,
-    currentName: '',
-    percent: 0,
-    batchId: '',
-    failedCount: 0
-  });
+  const [progress, setProgress] = useState<BatchProgress>(IDLE_PROGRESS);
   const [exportedItems, setExportedItems] = useState<ExportedItem[]>([]);
-  const cancelExportRef = useRef(false);
+  const [failures, setFailures] = useState<ExportFailure[]>([]);
+  const [fatalError, setFatalError] = useState<string | null>(null);
+  const [batch, setBatch] = useState<{ id: string; engine: ExportEngine } | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
 
-  // Step 1 to 5 ref anchors
-  const step1Ref = useRef<HTMLDivElement>(null);
-  const step2Ref = useRef<HTMLDivElement>(null);
-  const step3Ref = useRef<HTMLDivElement>(null);
-  const step4Ref = useRef<HTMLDivElement>(null);
-  const step5Ref = useRef<HTMLDivElement>(null);
+  const isBusy = progress.phase === 'preparing' || progress.phase === 'rendering';
 
-  // Check server status on mount
   useEffect(() => {
-    fetch('/api/status')
-      .then(res => res.json())
-      .then(data => {
-        setSampleAvailable(data.sampleAvailable || false);
-      })
-      .catch(() => {});
+    getServerStatus().then(setServerStatus);
   }, []);
 
-  // Compute customer names list
-  const parsedNames = useMemo(() => {
-    return rawNamesText
-      .split('\n')
-      .map(line => line.trim())
-      .filter(line => line.length > 0);
-  }, [rawNamesText]);
+  // Warn before closing the tab in the middle of an export.
+  useEffect(() => {
+    if (!isBusy) return;
+    const handler = (e: BeforeUnloadEvent) => e.preventDefault();
+    window.addEventListener('beforeunload', handler);
+    return () => window.removeEventListener('beforeunload', handler);
+  }, [isBusy]);
 
-  // Keep active preview name in bounds
-  const activeCustomerName = parsedNames[activePreviewIndex] || parsedNames[0] || 'Customer Name';
+  const names = useMemo(
+    () =>
+      rawNamesText
+        .split('\n')
+        .map(line => line.trim())
+        .filter(line => line.length > 0),
+    [rawNamesText]
+  );
+  const previewIndex = Math.min(activePreviewIndex, Math.max(0, names.length - 1));
+  const previewName = names[previewIndex] ?? t('sampleName');
 
-  // Load sample desktop video directly
+  const handleVideoSelected = async (file: File) => {
+    const localUrl = URL.createObjectURL(file);
+    const meta = await readVideoMetadata(localUrl);
+    const duration = meta?.duration ?? 0;
+
+    setPreviewFailed(meta === null);
+    setVideoData(prev => {
+      if (prev?.url.startsWith('blob:')) URL.revokeObjectURL(prev.url);
+      return {
+        name: file.name,
+        url: localUrl,
+        width: meta?.width ?? 1080,
+        height: meta?.height ?? 1920,
+        duration,
+        size: file.size,
+        file,
+      };
+    });
+    setPosition(prev => ({ ...prev, timeStart: 0, timeEnd: Math.round(duration * 10) / 10 || 10 }));
+
+    // Only upload when the local FFmpeg server is running; static hosting has nowhere to upload to.
+    const upload = getServerStatus()
+      .then(status => (status.available ? uploadVideoToServer(file) : null))
+      .catch(err => {
+        console.warn('Upload to local server failed, the browser engine will be used:', err);
+        return null;
+      });
+    uploadRef.current = upload;
+    const serverVideo = await upload;
+    if (!serverVideo) return;
+    setVideoData(prev =>
+      prev?.file === file
+        ? {
+            ...prev,
+            serverVideoId: serverVideo.serverVideoId,
+            // The browser could not read the file: trust FFmpeg's measurements instead.
+            ...(meta ? {} : { width: serverVideo.width, height: serverVideo.height, duration: serverVideo.duration }),
+          }
+        : prev
+    );
+  };
+
   const handleLoadSample = async () => {
     setIsLoadingSample(true);
     try {
-      const res = await fetch('/api/load-sample', { method: 'POST' });
-      const data = await res.json();
-      if (res.ok) {
-        setVideoData(data);
-        setPosition(prev => ({
-          ...prev,
-          timeEnd: Math.round(data.duration) || 10
-        }));
-        setCurrentStep(2);
-      } else {
-        alert(data.error || 'Failed to load desktop sample');
-      }
-    } catch (err: any) {
-      alert('Error loading sample: ' + err.message);
+      const sample = await loadServerSample();
+      uploadRef.current = Promise.resolve(sample);
+      setPreviewFailed(false);
+      setVideoData({
+        name: sample.name,
+        url: sample.url,
+        width: sample.width,
+        height: sample.height,
+        duration: sample.duration,
+        size: sample.size,
+        serverVideoId: sample.serverVideoId,
+      });
+      setPosition(prev => ({ ...prev, timeStart: 0, timeEnd: sample.duration || 10 }));
+    } catch (err) {
+      alert(err instanceof Error ? err.message : String(err));
     } finally {
       setIsLoadingSample(false);
     }
   };
 
-  // Upload video with instant browser preview and fallback
-  const handleVideoSelected = async (file: File) => {
-    setIsUploading(true);
-    setUploadProgress(20);
+  const handleStartExport = async () => {
+    if (!videoData || names.length === 0 || isBusy) return;
 
-    // 1. Instant client-side preview & metadata probe
-    const localUrl = URL.createObjectURL(file);
-    const tempVideo = document.createElement('video');
-    tempVideo.preload = 'metadata';
-    tempVideo.src = localUrl;
+    const controller = new AbortController();
+    abortRef.current = controller;
+    const video = videoData;
+    const queue = [...names];
+    const style = textStyle;
+    const pos = position;
+    const batchId = `batch_${Date.now()}`;
 
-    const browserMeta = await new Promise<Partial<VideoData>>((resolve) => {
-      tempVideo.onloadedmetadata = () => {
-        resolve({
-          width: tempVideo.videoWidth || 1080,
-          height: tempVideo.videoHeight || 1920,
-          duration: tempVideo.duration || 10,
-          fps: 30,
-          hasAudio: true,
-          size: file.size
-        });
-      };
-      tempVideo.onerror = () => {
-        resolve({ width: 1080, height: 1920, duration: 10, fps: 30, hasAudio: true, size: file.size });
-      };
-    });
-
-    const localVideoData: VideoData = {
-      videoId: `local_${Date.now()}`,
-      originalName: file.name,
-      filename: file.name,
-      url: localUrl,
-      width: browserMeta.width || 1080,
-      height: browserMeta.height || 1920,
-      duration: Math.round((browserMeta.duration || 10) * 100) / 100,
-      fps: browserMeta.fps || 30,
-      hasAudio: browserMeta.hasAudio ?? true,
-      size: file.size
-    };
-
-    setVideoData(localVideoData);
-    setPosition(prev => ({
-      ...prev,
-      timeEnd: Math.round(localVideoData.duration) || 10
-    }));
-    setCurrentStep(2);
-
-    // 2. Background upload to local server if available
-    try {
-      setUploadProgress(50);
-      const formData = new FormData();
-      formData.append('video', file);
-      const res = await fetch('/api/upload', {
-        method: 'POST',
-        body: formData
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setVideoData(data);
-      }
-      setUploadProgress(100);
-    } catch (_) {
-      // Graceful offline/static mode (e.g. GitHub Pages)
-      setUploadProgress(100);
-    } finally {
-      setIsUploading(false);
-    }
-  };
-
-  // Custom font uploaded
-  const handleCustomFontUploaded = (fontFamily: string, fontUrl: string) => {
-    setTextStyle(prev => ({
-      ...prev,
-      fontFamily,
-      customFontUrl: fontUrl
-    }));
-  };
-
-  // Scroll to step
-  const handleStepClick = (stepNum: number) => {
-    setCurrentStep(stepNum);
-    const refs: Record<number, React.RefObject<HTMLDivElement | null>> = {
-      1: step1Ref,
-      2: step2Ref,
-      3: step3Ref,
-      4: step4Ref,
-      5: step5Ref
-    };
-    refs[stepNum]?.current?.scrollIntoView({ behavior: 'smooth' });
-  };
-
-  // Batch Export execution
-  const handleStartExport = async (quality: 'high' | 'balanced' | 'fast') => {
-    if (!videoData || parsedNames.length === 0) return;
-
-    const newBatchId = `batch_${Date.now()}`;
-    setBatchId(newBatchId);
-    cancelExportRef.current = false;
+    exportedItems.forEach(item => item.blob && URL.revokeObjectURL(item.videoUrl));
     setExportedItems([]);
+    setFailures([]);
+    setFatalError(null);
+    setProgress({ ...IDLE_PROGRESS, phase: 'preparing', total: queue.length });
 
-    setProgress({
-      isRendering: true,
-      total: parsedNames.length,
-      current: 0,
-      currentName: parsedNames[0],
-      percent: 0,
-      batchId: newBatchId,
-      failedCount: 0
-    });
-
-    const renderedList: ExportedItem[] = [];
-
-    for (let i = 0; i < parsedNames.length; i++) {
-      if (cancelExportRef.current) break;
-
-      const customerName = parsedNames[i];
-      setProgress(prev => ({
-        ...prev,
-        current: i + 1,
-        currentName: customerName,
-        percent: Math.round((i / parsedNames.length) * 100)
-      }));
-
-      try {
-        // 1. Render high-res 1080x1920 overlay PNG on client canvas
-        const overlayDataUrl = await renderTextOverlayToDataUrl(
-          customerName,
-          textStyle,
-          position,
-          videoData.width,
-          videoData.height
-        );
-
-        // 2. Post to server for FFmpeg hardware overlay
-        const res = await fetch('/api/render-item', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            batchId: newBatchId,
-            videoId: videoData.videoId,
-            customerName,
-            overlayImageBase64: overlayDataUrl,
-            timeStart: position.showAlways ? 0 : position.timeStart,
-            timeEnd: position.showAlways ? videoData.duration : position.timeEnd,
-            fadeDuration: position.showAlways ? 0 : position.fadeDuration,
-            quality
-          })
-        });
-
-        const data = await res.json();
-        if (res.ok && data.success) {
-          const item: ExportedItem = {
-            id: `item_${i}_${Date.now()}`,
-            customerName: data.customerName,
-            filename: data.filename,
-            videoUrl: data.videoUrl,
-            thumbnailUrl: data.thumbnailUrl,
-            size: data.size,
-            renderTime: data.renderTime
-          };
-          renderedList.push(item);
-          setExportedItems([...renderedList]);
-        } else {
-          console.error(`Failed rendering ${customerName}:`, data.error);
-        }
-      } catch (err) {
-        console.error(`Render error for ${customerName}:`, err);
+    const items: ExportedItem[] = [];
+    const failed: ExportFailure[] = [];
+    try {
+      // Prefer the local FFmpeg server when it's running and has the video; otherwise render in the browser.
+      let serverVideoId = video.serverVideoId;
+      if (!serverVideoId && (await getServerStatus()).available && uploadRef.current) {
+        serverVideoId = (await uploadRef.current)?.serverVideoId;
       }
-    }
+      const engine: ExportEngine = serverVideoId ? 'server' : 'browser';
+      let browserEngine: typeof import('./utils/browserExport') | null = null;
+      let codec: VideoCodec | null = null;
+      let source: Blob | null = null;
+      if (engine === 'browser') {
+        browserEngine = await import('./utils/browserExport');
+        codec = await browserEngine.pickVideoCodec(video.width, video.height);
+        source = video.file ?? (await fetch(video.url).then(res => res.blob()));
+      }
+      setBatch({ id: batchId, engine });
 
-    setProgress(prev => ({
-      ...prev,
-      isRendering: false,
-      percent: 100
-    }));
+      const takenNames = new Set<string>();
+      for (let i = 0; i < queue.length && !controller.signal.aborted; i++) {
+        const customerName = queue[i];
+        const toPercent = (fraction: number) => Math.min(99, Math.round(((i + fraction) / queue.length) * 100));
+        setProgress(p => ({ ...p, phase: 'rendering', current: i + 1, currentName: customerName, percent: toPercent(0) }));
 
-    if (!cancelExportRef.current && renderedList.length > 0) {
-      confetti({
-        particleCount: 100,
-        spread: 70,
-        origin: { y: 0.6 }
-      });
-      // Scroll to step 5
-      step5Ref.current?.scrollIntoView({ behavior: 'smooth' });
+        try {
+          const overlay = await renderTextOverlay(customerName, style, pos, video.width, video.height);
+          if (engine === 'server' && serverVideoId) {
+            const result = await renderOnServer(
+              {
+                batchId,
+                videoId: serverVideoId,
+                customerName,
+                overlayImageBase64: overlay.toDataURL('image/png'),
+                // 0/0 means "the whole video" to the server, whatever its exact duration.
+                timeStart: pos.showAlways ? 0 : pos.timeStart,
+                timeEnd: pos.showAlways ? 0 : pos.timeEnd,
+                fadeDuration: pos.showAlways ? 0 : pos.fadeDuration,
+              },
+              controller.signal
+            );
+            items.push({ id: `${batchId}_${i}`, customerName, ...result });
+          } else if (browserEngine && codec && source) {
+            let lastPercent = -1;
+            const result = await browserEngine.renderInBrowser({
+              source,
+              overlay,
+              position: pos,
+              codec,
+              signal: controller.signal,
+              onProgress: fraction => {
+                const percent = toPercent(fraction);
+                if (percent !== lastPercent) {
+                  lastPercent = percent;
+                  setProgress(p => ({ ...p, percent }));
+                }
+              },
+            });
+            items.push({
+              id: `${batchId}_${i}`,
+              customerName,
+              filename: uniqueVideoFileName(customerName, takenNames),
+              videoUrl: URL.createObjectURL(result.blob),
+              thumbnailUrl: result.thumbnailUrl,
+              size: result.blob.size,
+              blob: result.blob,
+            });
+          }
+          setExportedItems([...items]);
+        } catch (err) {
+          if (controller.signal.aborted) break;
+          // A problem with the video or the browser affects every name, so stop right away.
+          if (err instanceof ExportError) throw err;
+          console.error(`Render error for ${customerName}:`, err);
+          failed.push({ customerName, error: err instanceof Error ? err.message : String(err) });
+          setFailures([...failed]);
+        }
+      }
+    } catch (err) {
+      if (!controller.signal.aborted) {
+        console.error('Export failed:', err);
+        setFatalError(
+          err instanceof ExportError
+            ? t(err.code)
+            : t('unexpectedError', { message: err instanceof Error ? err.message : String(err) })
+        );
+      }
+    } finally {
+      const stopped = controller.signal.aborted;
+      abortRef.current = null;
+      setProgress(p => ({ ...p, phase: 'finished', percent: 100, stopped }));
+      if (!stopped && items.length > 0) {
+        confetti({ particleCount: 100, spread: 70, origin: { y: 0.6 } });
+      }
     }
   };
 
-  const handleCancelExport = () => {
-    cancelExportRef.current = true;
-    setProgress(prev => ({ ...prev, isRendering: false }));
+  const handleCancelExport = () => abortRef.current?.abort();
+
+  const handleDownloadAll = async () => {
+    if (!batch) return;
+    if (batch.engine === 'server') {
+      triggerDownload(serverZipUrl(batch.id), `Video_Invitations_${batch.id}.zip`);
+    } else {
+      await downloadItemsAsZip(exportedItems, 'Video_Invitations.zip');
+    }
   };
 
   return (
-    <div className="min-h-screen bg-[#070b14] text-slate-100 flex flex-col font-sans selection:bg-rose-500 selection:text-white">
-      {/* Header */}
-      <Header
-        currentStep={currentStep}
-        onStepClick={handleStepClick}
-        hasVideo={videoData !== null}
-        customerCount={parsedNames.length}
-        sampleAvailable={sampleAvailable}
-        onLoadSample={handleLoadSample}
-        isLoadingSample={isLoadingSample}
-      />
+    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col">
+      <Header />
 
-      {/* Main Content: Split Studio Workspace */}
-      <main className="flex-1 max-w-7xl w-full mx-auto px-4 lg:px-8 py-6">
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
-          
-          {/* LEFT COLUMN: Configuration Stepper (7 cols) */}
-          <div className="lg:col-span-7 space-y-6">
-            
-            {/* Step 1: Upload Video */}
-            <div ref={step1Ref}>
-              <VideoUploader
-                videoData={videoData}
-                onVideoSelected={handleVideoSelected}
-                onLoadSample={handleLoadSample}
-                sampleAvailable={sampleAvailable}
-                isUploading={isUploading}
-                uploadProgress={uploadProgress}
-              />
-            </div>
+      <main className="flex-1 max-w-6xl w-full mx-auto px-4 lg:px-8 py-6">
+        <p className="text-base text-slate-300 mt-0 mb-6">{t('intro')}</p>
 
-            {/* Step 2: Customer List */}
-            <div ref={step2Ref}>
-              <CustomerListManager
-                rawNamesText={rawNamesText}
-                onRawNamesChange={setRawNamesText}
-                parsedNames={parsedNames}
-                activePreviewName={activeCustomerName}
-                onSelectPreviewName={(name) => {
-                  const idx = parsedNames.indexOf(name);
-                  if (idx !== -1) setActivePreviewIndex(idx);
-                }}
-              />
-            </div>
-
-            {/* Step 3: Typography & Style */}
-            <div ref={step3Ref}>
-              <TypographyControls
-                style={textStyle}
-                onChange={(updated) => setTextStyle(prev => ({ ...prev, ...updated }))}
-                onCustomFontUploaded={handleCustomFontUploaded}
-                isUploadingFont={isUploadingFont}
-              />
-            </div>
-
-            {/* Step 5: Mass Export */}
-            <div ref={step5Ref}>
-              <ExportManager
-                videoData={videoData}
-                customerNames={parsedNames}
-                progress={progress}
-                exportedItems={exportedItems}
-                onStartExport={handleStartExport}
-                onCancelExport={handleCancelExport}
-                batchId={batchId}
-              />
-            </div>
-
+        {/* On phones the preview sits right after step 1; on large screens it stays on the right. */}
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+          <div className="lg:col-span-7 lg:col-start-1 lg:row-start-1">
+            <VideoUploader
+              videoData={videoData}
+              previewFailed={previewFailed}
+              onVideoSelected={handleVideoSelected}
+              onLoadSample={handleLoadSample}
+              sampleAvailable={serverStatus.sampleAvailable}
+              isLoadingSample={isLoadingSample}
+            />
           </div>
 
-          {/* RIGHT COLUMN: Sticky 9:16 Video Preview Canvas (5 cols) */}
-          <div className="lg:col-span-5 lg:sticky lg:top-20 space-y-4" ref={step4Ref}>
+          <div className="lg:col-span-5 lg:col-start-8 lg:row-start-1 lg:row-span-2 lg:sticky lg:top-20">
             <VideoPreviewCanvas
               videoData={videoData}
               textStyle={textStyle}
               position={position}
-              onPositionChange={(updated) => setPosition(prev => ({ ...prev, ...updated }))}
-              activeCustomerName={activeCustomerName}
-              customerNames={parsedNames}
-              onSelectCustomerName={(name) => {
-                const idx = parsedNames.indexOf(name);
-                if (idx !== -1) setActivePreviewIndex(idx);
-              }}
+              onPositionChange={updated => setPosition(prev => ({ ...prev, ...updated }))}
+              previewName={previewName}
+              nameCount={names.length}
+              activeIndex={previewIndex}
+              onActiveIndexChange={setActivePreviewIndex}
             />
           </div>
 
+          <div className="lg:col-span-7 lg:col-start-1 lg:row-start-2 space-y-6">
+            <CustomerListManager rawNamesText={rawNamesText} onRawNamesChange={setRawNamesText} nameCount={names.length} />
+
+            <TypographyControls
+              style={textStyle}
+              onChange={updated => setTextStyle(prev => ({ ...prev, ...updated }))}
+              position={position}
+              onPositionChange={updated => setPosition(prev => ({ ...prev, ...updated }))}
+              previewName={previewName}
+              videoDuration={videoData?.duration ?? 10}
+            />
+
+            <ExportManager
+              nameCount={names.length}
+              missing={!videoData ? 'needVideo' : names.length === 0 ? 'needNames' : null}
+              progress={progress}
+              exportedItems={exportedItems}
+              failures={failures}
+              fatalError={fatalError}
+              localNote={!serverStatus.available}
+              onStartExport={handleStartExport}
+              onCancelExport={handleCancelExport}
+              onDownloadAll={handleDownloadAll}
+            />
+          </div>
         </div>
       </main>
 
-      {/* Footer */}
-      <footer className="border-t border-slate-900 bg-slate-950/60 py-4 px-6 text-center text-xs text-slate-400">
-        <span className="font-semibold text-slate-200">Reel Invitation</span> • <span className="text-rose-400 font-semibold">Made for BLK.HN</span>
+      <footer className="border-t border-slate-900 py-4 px-6 text-center text-xs text-slate-400">
+        <span className="font-semibold text-slate-200">Reel Invitation</span> •{' '}
+        <span className="text-rose-400 font-semibold">{t('madeFor')}</span>
       </footer>
     </div>
   );
