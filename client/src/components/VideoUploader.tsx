@@ -1,26 +1,23 @@
 import React, { useRef, useState } from 'react';
-import { UploadCloud, FileVideo, RefreshCw, Sparkles, AlertTriangle } from 'lucide-react';
-import type { VideoData } from '../types';
+import { UploadCloud, FileVideo, FileImage, RefreshCw, Sparkles, AlertTriangle } from 'lucide-react';
+import type { MediaData } from '../types';
 import { useI18n } from '../i18n/useI18n';
+import { mediaKindOf } from '../utils/files';
 import { StepCard } from './StepCard';
 
 interface VideoUploaderProps {
-  videoData: VideoData | null;
+  media: MediaData | null;
   previewFailed: boolean;
-  onVideoSelected: (file: File) => void;
+  onFileSelected: (file: File) => void;
   onLoadSample: () => void;
   sampleAvailable: boolean;
   isLoadingSample: boolean;
 }
 
-function isVideoFile(file: File): boolean {
-  return file.type.startsWith('video/') || /\.(mp4|mov|m4v|webm)$/i.test(file.name);
-}
-
 export const VideoUploader: React.FC<VideoUploaderProps> = ({
-  videoData,
+  media,
   previewFailed,
-  onVideoSelected,
+  onFileSelected,
   onLoadSample,
   sampleAvailable,
   isLoadingSample,
@@ -32,12 +29,12 @@ export const VideoUploader: React.FC<VideoUploaderProps> = ({
 
   const pickFile = (file: File | undefined) => {
     if (!file) return;
-    if (!isVideoFile(file)) {
+    if (!mediaKindOf(file)) {
       setWrongFile(true);
       return;
     }
     setWrongFile(false);
-    onVideoSelected(file);
+    onFileSelected(file);
   };
 
   const handleDrop = (e: React.DragEvent) => {
@@ -48,17 +45,17 @@ export const VideoUploader: React.FC<VideoUploaderProps> = ({
 
   const warnings: string[] = [];
   if (wrongFile) warnings.push(t('notVideoFile'));
-  if (videoData && previewFailed) warnings.push(t('cannotPreview'));
-  if (videoData && !previewFailed && videoData.width >= videoData.height) warnings.push(t('notVertical'));
+  if (media && previewFailed) warnings.push(t(media.kind === 'image' ? 'imageUnreadable' : 'cannotPreview'));
+  if (media?.kind === 'video' && !previewFailed && media.width >= media.height) warnings.push(t('notVertical'));
 
   return (
     <StepCard
       step={1}
       title={t('step1Title')}
       description={t('step1Desc')}
-      done={videoData !== null}
+      done={media !== null}
       action={
-        videoData && (
+        media && (
           <button
             type="button"
             onClick={() => fileInputRef.current?.click()}
@@ -73,7 +70,7 @@ export const VideoUploader: React.FC<VideoUploaderProps> = ({
       <input
         ref={fileInputRef}
         type="file"
-        accept="video/mp4,video/quicktime,video/webm,.mp4,.mov,.m4v,.webm"
+        accept="video/mp4,video/quicktime,video/webm,.mp4,.mov,.m4v,.webm,image/png,image/jpeg,image/webp,.png,.jpg,.jpeg,.webp"
         className="hidden"
         onChange={e => {
           pickFile(e.target.files?.[0]);
@@ -81,7 +78,7 @@ export const VideoUploader: React.FC<VideoUploaderProps> = ({
         }}
       />
 
-      {!videoData ? (
+      {!media ? (
         <div
           role="button"
           tabIndex={0}
@@ -93,7 +90,10 @@ export const VideoUploader: React.FC<VideoUploaderProps> = ({
           onDragLeave={() => setIsDragOver(false)}
           onClick={() => fileInputRef.current?.click()}
           onKeyDown={e => {
-            if (e.key === 'Enter' || e.key === ' ') fileInputRef.current?.click();
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault();
+              fileInputRef.current?.click();
+            }
           }}
           className={`border-2 border-dashed rounded-2xl p-8 text-center cursor-pointer transition ${
             isDragOver ? 'border-rose-500 bg-rose-500/10' : 'border-slate-700 hover:border-slate-500 bg-slate-950/40'
@@ -124,14 +124,18 @@ export const VideoUploader: React.FC<VideoUploaderProps> = ({
       ) : (
         <div className="flex items-center gap-3 bg-slate-950/60 border border-slate-800 rounded-xl p-3">
           <div className="w-10 h-12 rounded-lg bg-slate-800 flex items-center justify-center shrink-0">
-            <FileVideo className="w-5 h-5 text-rose-400" />
+            {media.kind === 'image' ? (
+              <FileImage className="w-5 h-5 text-rose-400" />
+            ) : (
+              <FileVideo className="w-5 h-5 text-rose-400" />
+            )}
           </div>
           <div className="min-w-0">
-            <p className="text-sm font-semibold text-white truncate m-0">{videoData.name}</p>
+            <p className="text-sm font-semibold text-white truncate m-0">{media.name}</p>
             <p className="text-xs text-slate-400 m-0">
-              {videoData.width}×{videoData.height}
-              {videoData.duration > 0 && ` · ${videoData.duration.toFixed(1)}s`}
-              {videoData.size > 0 && ` · ${(videoData.size / (1024 * 1024)).toFixed(1)} MB`}
+              {media.width}×{media.height}
+              {media.duration > 0 && ` · ${media.duration.toFixed(1)}s`}
+              {media.size > 0 && ` · ${(media.size / (1024 * 1024)).toFixed(1)} MB`}
             </p>
           </div>
         </div>

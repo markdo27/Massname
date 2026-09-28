@@ -1,16 +1,23 @@
-import type { ExportedItem } from '../types';
+import type { ExportedItem, MediaKind } from '../types';
 
-/** A safe, unique `.mp4` file name for a guest (keeps Vietnamese letters, drops characters Windows rejects). */
-export function uniqueVideoFileName(customerName: string, taken: Set<string>): string {
+/** Whether a picked file is a video or an image we can personalize (null for anything else). */
+export function mediaKindOf(file: File): MediaKind | null {
+  if (file.type.startsWith('image/') || /\.(png|jpe?g|webp)$/i.test(file.name)) return 'image';
+  if (file.type.startsWith('video/') || /\.(mp4|mov|m4v|webm)$/i.test(file.name)) return 'video';
+  return null;
+}
+
+/** A safe, unique file name for a guest (keeps Vietnamese letters, drops characters Windows rejects). */
+export function uniqueFileName(customerName: string, extension: string, taken: Set<string>): string {
   const base =
     customerName
       .trim()
       .replace(/[\\/:*?"<>|]/g, '_')
       .replace(/\s+/g, '_')
-      .slice(0, 60) || 'video';
-  let name = `${base}.mp4`;
+      .slice(0, 60) || 'invitation';
+  let name = `${base}.${extension}`;
   for (let i = 1; taken.has(name.toLowerCase()); i++) {
-    name = `${base}_${i}.mp4`;
+    name = `${base}_${i}.${extension}`;
   }
   taken.add(name.toLowerCase());
   return name;
@@ -52,7 +59,7 @@ export async function downloadItemsAsZip(items: ExportedItem[], zipName: string)
   for (const item of items) {
     if (item.blob) zip.file(item.filename, item.blob);
   }
-  // MP4 is already compressed, so store the files as-is: much faster, same size.
+  // MP4, JPG and PNG are already compressed, so store the files as-is: much faster, same size.
   const blob = await zip.generateAsync({ type: 'blob', compression: 'STORE' });
   const url = URL.createObjectURL(blob);
   triggerDownload(url, zipName);
