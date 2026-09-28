@@ -1,11 +1,11 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Play, Pause, Volume2, VolumeX, ChevronLeft, ChevronRight, Film, Move } from 'lucide-react';
-import type { VideoData, TextStyle, OverlayPosition } from '../types';
+import type { MediaData, TextStyle, OverlayPosition } from '../types';
 import { useI18n } from '../i18n/useI18n';
 import { REFERENCE_WIDTH, displayName, previewTextShadow } from '../utils/canvasRenderer';
 
 interface VideoPreviewCanvasProps {
-  videoData: VideoData | null;
+  media: MediaData | null;
   textStyle: TextStyle;
   position: OverlayPosition;
   onPositionChange: (pos: Partial<OverlayPosition>) => void;
@@ -22,7 +22,7 @@ function hexToRgba(hex: string, alpha: number): string {
 }
 
 export const VideoPreviewCanvas: React.FC<VideoPreviewCanvasProps> = ({
-  videoData,
+  media,
   textStyle,
   position,
   onPositionChange,
@@ -52,8 +52,9 @@ export const VideoPreviewCanvas: React.FC<VideoPreviewCanvasProps> = ({
   }, []);
 
   const scale = containerWidth / REFERENCE_WIDTH;
-  const aspect = videoData ? `${videoData.width} / ${videoData.height}` : '9 / 16';
-  const isLandscape = videoData ? videoData.width > videoData.height : false;
+  const aspect = media ? `${media.width} / ${media.height}` : '9 / 16';
+  const isLandscape = media ? media.width > media.height : false;
+  const isVideo = media?.kind === 'video';
 
   const togglePlay = () => {
     const video = videoRef.current;
@@ -93,7 +94,7 @@ export const VideoPreviewCanvas: React.FC<VideoPreviewCanvasProps> = ({
   };
 
   const isTextVisible =
-    position.showAlways || (currentTime >= position.timeStart && currentTime <= position.timeEnd);
+    !isVideo || position.showAlways || (currentTime >= position.timeStart && currentTime <= position.timeEnd);
 
   return (
     <section className="bg-slate-900 border border-slate-800 rounded-2xl p-5 flex flex-col items-center">
@@ -107,16 +108,23 @@ export const VideoPreviewCanvas: React.FC<VideoPreviewCanvasProps> = ({
 
       <div
         ref={containerRef}
-        onClick={e => videoData && moveTo(e.clientX, e.clientY)}
+        onClick={e => media && moveTo(e.clientX, e.clientY)}
         className={`relative ${isLandscape ? 'w-full' : 'w-full max-w-[320px]'} rounded-2xl overflow-hidden bg-black border border-slate-700 select-none ${
-          videoData ? 'cursor-crosshair' : ''
+          media ? 'cursor-crosshair' : ''
         }`}
         style={{ aspectRatio: aspect }}
       >
-        {videoData ? (
+        {media?.kind === 'image' ? (
+          <img
+            src={media.url}
+            alt=""
+            draggable={false}
+            className="absolute inset-0 w-full h-full object-contain"
+          />
+        ) : media ? (
           <video
             ref={videoRef}
-            src={videoData.url}
+            src={media.url}
             className="absolute inset-0 w-full h-full object-contain"
             loop
             playsInline
@@ -173,12 +181,12 @@ export const VideoPreviewCanvas: React.FC<VideoPreviewCanvasProps> = ({
       </div>
 
       {/* Player controls */}
-      {videoData && (
+      {media && isVideo && (
         <div className={`${isLandscape ? 'w-full' : 'w-full max-w-[320px]'} mt-3`}>
           <input
             type="range"
             min="0"
-            max={videoData.duration || 10}
+            max={media.duration || 10}
             step="0.05"
             value={currentTime}
             onChange={e => {
@@ -209,7 +217,7 @@ export const VideoPreviewCanvas: React.FC<VideoPreviewCanvasProps> = ({
               {isMuted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
             </button>
             <span>
-              {currentTime.toFixed(1)}s / {videoData.duration.toFixed(1)}s
+              {currentTime.toFixed(1)}s / {media.duration.toFixed(1)}s
             </span>
           </div>
         </div>

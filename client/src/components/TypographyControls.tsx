@@ -12,7 +12,7 @@ interface TypographyControlsProps {
   position: OverlayPosition;
   onPositionChange: (updated: Partial<OverlayPosition>) => void;
   previewName: string;
-  videoDuration: number;
+  videoDuration: number | null; // null when there is no video: timing only applies to videos
 }
 
 const EFFECTS: { id: TextStyle['effect']; labelKey: TranslationKey }[] = [
@@ -75,7 +75,7 @@ export const TypographyControls: React.FC<TypographyControlsProps> = ({
     ...(customFont ? [{ family: customFont.family, label: customFont.fileName }] : []),
   ];
   const isPresetColor = COLOR_PRESETS.some(c => c.hex.toLowerCase() === style.color.toLowerCase());
-  const maxTime = Math.max(0.1, Math.round(videoDuration * 10) / 10);
+  const maxTime = Math.max(0.1, Math.round((videoDuration ?? 0) * 10) / 10);
 
   return (
     <StepCard step={3} title={t('step3Title')} description={t('step3Desc')}>
@@ -274,61 +274,63 @@ export const TypographyControls: React.FC<TypographyControlsProps> = ({
               {fontError && <p className="text-sm text-red-300 mt-2 mb-0">{t('fontLoadError')}</p>}
             </div>
 
-            <div>
-              <Label>{t('timing')}</Label>
-              <div className="flex flex-wrap gap-2">
-                <button
-                  type="button"
-                  onClick={() => onPositionChange({ showAlways: true })}
-                  aria-pressed={position.showAlways}
-                  className={chip(position.showAlways)}
-                >
-                  {t('timingAlways')}
-                </button>
-                <button
-                  type="button"
-                  onClick={() =>
-                    onPositionChange({
-                      showAlways: false,
-                      timeEnd: position.timeEnd > position.timeStart ? Math.min(position.timeEnd, maxTime) : maxTime,
-                    })
-                  }
-                  aria-pressed={!position.showAlways}
-                  className={chip(!position.showAlways)}
-                >
-                  {t('timingRange')}
-                </button>
-              </div>
-
-              {!position.showAlways && (
-                <div className="grid grid-cols-2 gap-4 mt-3">
-                  {(['timeStart', 'timeEnd'] as const).map(field => (
-                    <label key={field} className="text-sm text-slate-300">
-                      <span className="flex justify-between mb-1">
-                        <span>{t(field === 'timeStart' ? 'timeFrom' : 'timeTo')}</span>
-                        <span className="text-slate-400">{position[field].toFixed(1)}s</span>
-                      </span>
-                      <input
-                        type="range"
-                        min="0"
-                        max={maxTime}
-                        step="0.1"
-                        value={Math.min(position[field], maxTime)}
-                        onChange={e => {
-                          const value = parseFloat(e.target.value);
-                          onPositionChange(
-                            field === 'timeStart'
-                              ? { timeStart: value, timeEnd: Math.max(value, position.timeEnd) }
-                              : { timeEnd: value, timeStart: Math.min(value, position.timeStart) }
-                          );
-                        }}
-                        className="w-full accent-rose-500 cursor-pointer"
-                      />
-                    </label>
-                  ))}
+            {videoDuration !== null && (
+              <div>
+                <Label>{t('timing')}</Label>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => onPositionChange({ showAlways: true })}
+                    aria-pressed={position.showAlways}
+                    className={chip(position.showAlways)}
+                  >
+                    {t('timingAlways')}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      onPositionChange({
+                        showAlways: false,
+                        timeEnd: position.timeEnd > position.timeStart ? Math.min(position.timeEnd, maxTime) : maxTime,
+                      })
+                    }
+                    aria-pressed={!position.showAlways}
+                    className={chip(!position.showAlways)}
+                  >
+                    {t('timingRange')}
+                  </button>
                 </div>
-              )}
-            </div>
+
+                {!position.showAlways && (
+                  <div className="grid grid-cols-2 gap-4 mt-3">
+                    {(['timeStart', 'timeEnd'] as const).map(field => (
+                      <label key={field} className="text-sm text-slate-300">
+                        <span className="flex justify-between mb-1">
+                          <span>{t(field === 'timeStart' ? 'timeFrom' : 'timeTo')}</span>
+                          <span className="text-slate-400">{position[field].toFixed(1)}s</span>
+                        </span>
+                        <input
+                          type="range"
+                          min="0"
+                          max={maxTime}
+                          step="0.1"
+                          value={Math.min(position[field], maxTime)}
+                          onChange={e => {
+                            const value = parseFloat(e.target.value);
+                            onPositionChange(
+                              field === 'timeStart'
+                                ? { timeStart: value, timeEnd: Math.max(value, position.timeEnd) }
+                                : { timeEnd: value, timeStart: Math.min(value, position.timeStart) }
+                            );
+                          }}
+                          className="w-full accent-rose-500 cursor-pointer"
+                        />
+                      </label>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         </details>
       </div>
