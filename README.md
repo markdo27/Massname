@@ -9,7 +9,7 @@ An intuitive, high-performance web tool designed to mass-personalize and export 
 1. **Choose your video or image**: a vertical 9:16 video (MP4, MOV or WebM, best at 1080×1920) or an invitation image
    (PNG, JPG or WebP) with an empty space for the name.
 2. **Type guest names**: one name per line, or import a `.txt` / `.csv` file (first column; a "Name" / "Họ và tên" header row is skipped).
-3. **Style the name**: pick a font, size, color, effect and position. Drag or tap the name on the live preview to move it.
+3. **Style the name**: pick a font, size, color, effect, position and rotation. Drag or tap the name on the live preview to move it.
    Bold/italic/uppercase, letter spacing, your own font file and "show the name only during part of the video" are under **More options**.
 4. **Create**: one file per name. Videos become MP4s with the original audio kept; images keep their full resolution
    (JPG stays JPG, PNG/WebP become PNG with transparency kept). Download them one by one or all at once as a ZIP.

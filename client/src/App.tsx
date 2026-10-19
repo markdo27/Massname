@@ -101,6 +101,7 @@ export function App() {
   const [position, setPosition] = useState<OverlayPosition>({
     xPercent: 50,
     yPercent: 78,
+    rotation: 0,
     timeStart: 0,
     timeEnd: 10,
     showAlways: true,

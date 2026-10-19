@@ -156,7 +156,7 @@ export const VideoPreviewCanvas: React.FC<VideoPreviewCanvasProps> = ({
             position: 'absolute',
             left: `${position.xPercent}%`,
             top: `${position.yPercent}%`,
-            transform: 'translate(-50%, -50%)',
+            transform: `translate(-50%, -50%) rotate(${position.rotation}deg)`,
             touchAction: 'none',
             whiteSpace: 'pre',
             lineHeight: textStyle.lineHeight,
@@ -168,7 +168,7 @@ export const VideoPreviewCanvas: React.FC<VideoPreviewCanvasProps> = ({
             fontWeight: textStyle.isBold ? 'bold' : 'normal',
             fontStyle: textStyle.isItalic ? 'italic' : 'normal',
             letterSpacing: `${textStyle.letterSpacing * scale}px`,
-            textShadow: previewTextShadow(textStyle, scale),
+            textShadow: previewTextShadow(textStyle, scale, position.rotation),
             backgroundColor:
               textStyle.effect === 'ribbon' ? hexToRgba(textStyle.ribbonBgColor, textStyle.ribbonOpacity) : 'transparent',
             opacity: isTextVisible ? 1 : 0.25,
