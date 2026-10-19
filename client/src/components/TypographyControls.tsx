@@ -1,5 +1,5 @@
 import React, { useRef, useState } from 'react';
-import { ChevronDown, Upload } from 'lucide-react';
+import { ChevronDown, RotateCcw, Upload } from 'lucide-react';
 import type { OverlayPosition, TextStyle } from '../types';
 import type { TranslationKey } from '../i18n/translations';
 import { useI18n } from '../i18n/useI18n';
@@ -198,6 +198,40 @@ export const TypographyControls: React.FC<TypographyControlsProps> = ({
               );
             })}
           </div>
+        </div>
+
+        {/* Rotation */}
+        <div>
+          <div className="flex justify-between items-center gap-2 mb-2">
+            <p className="text-sm font-semibold text-slate-300 m-0">{t('rotation')}</p>
+            <div className="flex items-center gap-2">
+              {position.rotation !== 0 && (
+                <button
+                  type="button"
+                  onClick={() => onPositionChange({ rotation: 0 })}
+                  className="px-2 py-1 rounded-lg text-xs text-slate-200 bg-slate-800 hover:bg-slate-700 transition flex items-center gap-1 cursor-pointer"
+                >
+                  <RotateCcw className="w-3.5 h-3.5" />
+                  {t('straighten')}
+                </button>
+              )}
+              <span className="text-sm text-slate-400 w-12 text-right">{position.rotation}°</span>
+            </div>
+          </div>
+          <input
+            type="range"
+            min="-180"
+            max="180"
+            step="1"
+            value={position.rotation}
+            onChange={e => {
+              const angle = parseInt(e.target.value, 10);
+              // Snap back to perfectly straight when close to 0°.
+              onPositionChange({ rotation: Math.abs(angle) <= 2 ? 0 : angle });
+            }}
+            aria-label={t('rotation')}
+            className="w-full accent-rose-500 cursor-pointer"
+          />
         </div>
 
         {/* More options */}

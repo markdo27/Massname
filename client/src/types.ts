@@ -30,6 +30,7 @@ export interface TextStyle {
 export interface OverlayPosition {
   xPercent: number; // 0 to 100
   yPercent: number; // 0 to 100
+  rotation: number; // degrees, clockwise, -180 to 180
   timeStart: number; // in seconds
   timeEnd: number; // in seconds
   showAlways: boolean;

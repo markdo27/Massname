@@ -44,8 +44,9 @@ export async function renderTextOverlay(
   if (!ctx) throw new Error('Could not get 2D canvas context');
 
   const lines = text.split('\n');
-  const targetX = (pos.xPercent / 100) * videoWidth;
-  const targetY = (pos.yPercent / 100) * videoHeight;
+  // Draw around the name's anchor point so rotation turns it in place.
+  ctx.translate((pos.xPercent / 100) * videoWidth, (pos.yPercent / 100) * videoHeight);
+  ctx.rotate((pos.rotation * Math.PI) / 180);
 
   ctx.font = fontSpec;
   ctx.textAlign = 'center';
@@ -56,7 +57,7 @@ export async function renderTextOverlay(
 
   const lineHeight = fontSize * style.lineHeight;
   const totalTextHeight = lines.length * lineHeight;
-  const startY = targetY - totalTextHeight / 2 + lineHeight / 2;
+  const startY = -totalTextHeight / 2 + lineHeight / 2;
 
   if (style.effect === 'ribbon') {
     const maxWidth = Math.max(...lines.map(line => ctx.measureText(line).width));
@@ -64,8 +65,8 @@ export async function renderTextOverlay(
     const padY = 16 * scale;
     const boxWidth = maxWidth + padX * 2;
     const boxHeight = totalTextHeight + padY * 2;
-    const boxX = targetX - boxWidth / 2;
-    const boxY = targetY - boxHeight / 2;
+    const boxX = -boxWidth / 2;
+    const boxY = -boxHeight / 2;
 
     ctx.save();
     ctx.fillStyle = style.ribbonBgColor;
@@ -76,6 +77,7 @@ export async function renderTextOverlay(
     ctx.restore();
   }
 
+  // Shadow offsets ignore the rotation, so shadows keep falling straight down like light from above.
   ctx.save();
   if (style.effect === 'soft') {
     ctx.shadowColor = 'rgba(0, 0, 0, 0.75)';
@@ -96,24 +98,31 @@ export async function renderTextOverlay(
     ctx.strokeStyle = 'rgba(0, 0, 0, 0.85)';
     ctx.lineWidth = 8 * scale;
     ctx.lineJoin = 'round';
-    lines.forEach((line, idx) => ctx.strokeText(line, targetX, startY + idx * lineHeight));
+    lines.forEach((line, idx) => ctx.strokeText(line, 0, startY + idx * lineHeight));
   }
 
   ctx.fillStyle = style.color;
-  lines.forEach((line, idx) => ctx.fillText(line, targetX, startY + idx * lineHeight));
+  lines.forEach((line, idx) => ctx.fillText(line, 0, startY + idx * lineHeight));
   ctx.restore();
 
   return canvas;
 }
 
-/** CSS equivalent of the canvas effects, for the live preview. `scale` is preview px per video px. */
-export function previewTextShadow(style: TextStyle, scale: number): string {
+/**
+ * CSS equivalent of the canvas effects, for the live preview. `scale` is preview px per video px.
+ * The preview element itself is rotated, so shadow offsets are turned back by `rotation` degrees
+ * to keep them pointing straight down, exactly like the canvas.
+ */
+export function previewTextShadow(style: TextStyle, scale: number, rotation = 0): string {
   const px = (v: number) => `${(v * scale).toFixed(2)}px`;
+  const rad = (rotation * Math.PI) / 180;
+  const offset = (x: number, y: number) =>
+    `${px(x * Math.cos(rad) + y * Math.sin(rad))} ${px(-x * Math.sin(rad) + y * Math.cos(rad))}`;
   switch (style.effect) {
     case 'soft':
-      return `${px(2)} ${px(4)} ${px(14)} rgba(0, 0, 0, 0.75)`;
+      return `${offset(2, 4)} ${px(14)} rgba(0, 0, 0, 0.75)`;
     case 'cinematic':
-      return `${px(4)} ${px(8)} ${px(20)} rgba(0, 0, 0, 0.85)`;
+      return `${offset(4, 8)} ${px(20)} rgba(0, 0, 0, 0.85)`;
     case 'glow':
       return `0 0 ${px(24)} ${style.color}`;
     case 'outline': {
